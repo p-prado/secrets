@@ -1,9 +1,10 @@
 require('dotenv').config();
-console.log(process.env); // remove this after you've confirmed it is working
 const express = require("express");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
-const encrypt = require("mongoose-encryption");
+const session = require("express-session");
+const passport = require("passport");
+const passportLocalMongoose = require("passport-local-mongoose");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -13,6 +14,15 @@ app.set("view engine", "ejs");
 app.use(express.urlencoded({ extended: true }));
 
 
+app.use(session({
+    secret: "Our little secret.",
+    resave: false,
+    saveUninitialized: false
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());
+
 // Line to avoid deprecation warning.
 mongoose.set('strictQuery', true);
 mongoose.connect("mongodb://localhost:27017/userDB");
@@ -21,14 +31,14 @@ const userSchema = mongoose.Schema({
     email: String,
     password: String
 });
-
-// This adds _ct and _ac fields to the schema, as well as pre 'init' and pre 'save' middleware,
-// and encrypt, decrypt, sign, and authenticate instance methods
-
-userSchema.plugin(encrypt, { secret: process.env.SECRET, encryptedFields:["password"]});
+userSchema.plugin(passportLocalMongoose);
 
 const User = new mongoose.model("User", userSchema);
 
+passport.use(User.createStrategy());
+
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
 
 app.get("/", function (req, res) {
     res.render("home");
@@ -39,46 +49,52 @@ app.route("/login")
         res.render("login");
     })
     .post(function (req, res) {
-        const username = req.body.username;
-        const password = req.body.password;
-        User.findOne({ email: username }, function (err, foundUser) {
+        const user = new User({
+            email: req.body.username,
+            password: req.body.password
+        });
+        req.login(user, function (err) {
             if (err) {
                 console.log(err);
             } else {
-                if (foundUser) {
-                    if (password === foundUser.password) {
-                        res.render("secrets");
-                    } else {
-                        console.log(`THE PASSWORDS DO NOT MATCH! ${password} != ${foundUser.password}`);
-                        res.redirect("/login");
-                    }
-                } else{
-                    console.log("NO USER FOUND");
-                    res.send("NO USER FOUND");
-                }
+                passport.authenticate("local")(req,res,function(){
+                    res.redirect("/secrets");
+                })
             }
-        });
-
+        })
     });
 
-
+app.route("/secrets")
+    .get(function (req, res) {
+        if (req.isAuthenticated) {
+            res.render("secrets");
+        } else {
+            res.redirect("/login");
+        }
+    });
 
 app.route("/register")
     .get(function (req, res) {
         res.render("register");
     })
     .post(function (req, res) {
-        User.create({
-            email: req.body.username,
-            password: req.body.password
-        }, function (err) {
+
+        User.register({ email: req.body.username }, req.body.password, function (err, user) {
             if (err) {
-                res.send(err);
+                console.log(err);
+                res.redirect("/register");
             } else {
-                res.render("secrets");
+                passport.authenticate("local")(req, res, function () {
+                    res.redirect("/secrets");
+                })
             }
-        });
+        })
     });
+
+app.get("/logout", function(req,res){
+    req.logout();
+    res.redirect("/");
+})
 
 
 
