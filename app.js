@@ -15,7 +15,7 @@ app.use(express.urlencoded({ extended: true }));
 
 
 app.use(session({
-    secret: "Our little secret.",
+    secret: process.env.SECRET,
     resave: false,
     saveUninitialized: false
 }));
@@ -79,7 +79,7 @@ app.route("/register")
     })
     .post(function (req, res) {
 
-        User.register({ email: req.body.username }, req.body.password, function (err, user) {
+        User.register({ username: req.body.username }, req.body.password, function (err, user) {
             if (err) {
                 console.log(err);
                 res.redirect("/register");
